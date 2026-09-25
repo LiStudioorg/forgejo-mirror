@@ -1,0 +1,36 @@
+name: Forgejo 镜像同步
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # 每 30 分钟同步一次（UTC）
+  workflow_dispatch:          # 允许手动触发
+
+permissions:
+  contents: write             # 允许推送代码到本仓库
+
+concurrency:
+  group: forgejo-mirror
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 克隆 Codeberg 官方仓库（裸仓库）
+        run: |
+          git clone --bare https://codeberg.org/forgejo/forgejo.git repo.git
+          git config --global --add safe.directory "$(pwd)/repo.git"
+
+      - name: 推送到本仓库（不触碰 mirror-config 分支）
+        run: |
+          cd repo.git
+          # 确保本地没有 mirror-config 分支，避免被推送
+          git update-ref -d refs/heads/mirror-config 2>/dev/null || true
+
+          # 用显式 refspec 推送所有分支和标签，强制覆盖远程对应分支
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
+            'refs/heads/*:refs/heads/*' \
+            'refs/tags/*:refs/tags/*' \
+            --force
